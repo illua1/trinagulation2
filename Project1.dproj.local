@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>1899.12.30 00:00:00.000.079,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.001,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.773,F:\delphi\fgnchtfg\Unit1.pas=F:\delphi\ytfhty\bdrtgbgdtg.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.361,F:\delphi\ytfhty\Unit2.pas=</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.773,F:\delphi\fgnchtfg\Unit1.dfm=F:\delphi\ytfhty\bdrtgbgdtg.dfm</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.198,F:\delphi\ytfhty\triangulation.dfm=F:\delphi\ytfhty\bdrtgbgdtg.dfm</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.921,=F:\delphi\ytfhty\Unit2.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.063,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.623,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.198,F:\delphi\ytfhty\triangulation.pas=F:\delphi\ytfhty\bdrtgbgdtg.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.746,F:\delphi\fgnchtfg\Project1.dproj=F:\delphi\ytfhty\Project1.dproj</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.192,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.401,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.726,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+    <Transaction>1899.12.30 00:00:00.000.142,=F:\delphi\fgnchtfg\Unit1.pas</Transaction>
+  </Transactions>
+</BorlandProject>

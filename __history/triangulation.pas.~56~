@@ -1,0 +1,606 @@
+﻿unit triangulation;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Types, System.Classes, System.Generics.Collections,
+  System.Math.Vectors, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ExtCtrls;
+
+type IArray = array of integer;
+type FPArray = array of TPointF;
+type IIArray = array of IArray;
+
+type
+  TForm1 = class(TForm)
+    Image1: TImage;
+    procedure OnCreate(Sender: TObject);
+    procedure OnResize(Sender: TObject);
+    procedure Image1Click(Sender: TObject);
+    procedure Draw();
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+type
+  Edge = class
+  public
+    a: integer;
+    b: integer;
+    constructor Create(_a, _b : integer);
+  end;
+
+type
+  integer2 = class
+  public
+    x: integer;
+    y: integer;
+    constructor Create(_x, _y : integer);
+    function sample(index: integer): integer;
+  end;
+
+type
+  integer3 = class
+  public
+    x: integer;
+    y: integer;
+    z: integer;
+    constructor Create(_x, _y, _z : integer);
+    function sample(index: integer): integer;
+  end;
+
+var
+  Form1: TForm1;
+  points_set: FPArray;
+
+  //edges: array of Edge;
+  tris: array of integer3;
+
+  edges: TArray<Edge>;
+
+type I2Array = array of integer2;
+type I3Array = array of integer3;
+
+implementation
+
+{$R *.dfm}
+
+const not_and_index = -1;
+
+function is_index(i: integer): boolean;
+begin
+  result := i > not_and_index;
+end;
+
+procedure DebugMsg(const Msg: String);
+begin
+    OutputDebugString(PChar(Msg))
+end;
+
+type Normal = class
+  procedure swap<T>(var a: T; var b: T); end; procedure Normal.swap<T>(var a: T; var b: T); begin var c := a; a := b; b := c; end;
+
+constructor Edge.Create(_a, _b : integer);
+begin
+  if _a < _b then
+  begin
+    a := _a;
+    b := _b;
+  end
+  else
+  begin
+    a := _b;
+    b := _a;
+  end;
+end;
+
+constructor integer2.Create(_x, _y : integer);
+begin
+  x := _x;
+  y := _y;
+end;
+
+function integer2.sample(index: integer): integer;
+begin
+  assert((index = 0) or (index = 1));
+  if index = 0 then
+  begin
+    result := x;
+  end
+  else
+  begin
+    result := y;
+  end;
+end;
+
+constructor integer3.Create(_x, _y, _z : integer);
+begin
+  x := _x;
+  y := _y;
+  z := _z;
+end;
+
+function integer3.sample(index: integer): integer;
+begin
+  assert((index = 0) or (index = 1) or (index = 2));
+  if index = 0 then
+  begin
+    result := x;
+  end
+  else if index = 1 then
+  begin
+    result := y;
+  end
+  else
+  begin
+    result := z;
+  end;
+end;
+
+function generate_delaunay_triplets(x_points, y_points :pointer; total_point: integer; r_total_tris: pointer): pointer; external 'Main.dll';
+procedure free_delaunay_triplets(tris :pointer); external 'Main.dll';
+
+function delaunay_a(tris :pointer; index: integer): integer; external 'Main.dll';
+function delaunay_b(tris :pointer; index: integer): integer; external 'Main.dll';
+function delaunay_c(tris :pointer; index: integer): integer; external 'Main.dll';
+
+procedure update_mesh_cpp();
+begin
+  // tris := tris + integer3.Create(0, 1, 2);
+
+  var x_positions, y_positions: array of single;
+  for var point_iter in points_set do
+  begin
+    x_positions := x_positions + [point_iter.X];
+    y_positions := y_positions + [point_iter.Y];
+  end;
+
+  var total_tris := 0;
+  var c_tris := generate_delaunay_triplets(pointer(x_positions), pointer(y_positions), Length(points_set), @total_tris);
+
+  tris := [];
+
+  for var index := 0 to total_tris - 1 do
+  begin
+    tris := tris + [integer3.Create(delaunay_a(c_tris, index), delaunay_b(c_tris, index), delaunay_c(c_tris, index))];
+  end;
+
+  free_delaunay_triplets(c_tris);
+end;
+
+type
+  TopoSet = class
+  public
+    class function part_of(all: integer3; part: integer): boolean; overload;
+    class function equals(left: integer3; right: integer3): boolean; overload;
+    class function part_of(all: integer3; part: integer2): boolean; overload;
+    class function part_of(all: integer2; part: integer): boolean; overload;
+    class function equals(left: integer2; right: integer2): boolean; overload;
+    class function index_of(all: integer3; part: integer): integer; overload;
+    class function index_of(all: integer2; part: integer): integer; overload;
+    class function unordered_index_of(all: integer3; part: integer2): integer;
+    class function diff(all: integer3; part: integer2): integer; overload;
+    class function diff(all: integer2; part: integer): integer; overload;
+    class function sample(all: integer3; indices: integer2): integer2;
+
+    const face: array[0..2] of integer = (0, 1, 2);
+    const edges: array[0..2] of array[0..1] of integer = ((0, 1), (1, 2), (2, 0));
+
+    const shift_front: array[0..2] of integer = (1, 2, 0);
+    const shift_back: array[0..2] of integer = (2, 0, 1);
+end;
+
+class function TopoSet.part_of(all: integer3; part: integer): boolean;
+begin
+  result := (part = all.x) or (part = all.y) or (part = all.z);
+end;
+
+class function TopoSet.equals(left: integer3; right: integer3): boolean;
+begin
+  result := part_of(left, right.x) and part_of(left, right.y) and part_of(left, right.z);
+end;
+
+class function TopoSet.part_of(all: integer3; part: integer2): boolean;
+begin
+  result := part_of(all, part.x) and part_of(all, part.y);
+end;
+
+class function TopoSet.part_of(all: integer2; part: integer): boolean;
+begin
+  result := (part = all.x) or (part = all.y);
+end;
+
+class function TopoSet.equals(left: integer2; right: integer2): boolean;
+begin
+  result := part_of(left, right.x) and part_of(left, right.y);
+end;
+
+class function TopoSet.index_of(all: integer3; part: integer): integer;
+begin
+  assert(part_of(all, part));
+  result := integer(all.y = part) * 1 + integer(all.z = part) * 2;
+end;
+
+class function TopoSet.index_of(all: integer2; part: integer): integer;
+begin
+  assert(part_of(all, part));
+  result := integer(all.y = part) * 1;
+end;
+
+class function TopoSet.unordered_index_of(all: integer3; part: integer2): integer;
+begin
+  assert(part_of(all, part));
+  result := integer(equals(integer2.create(all.y, all.z), part)) * 1 + integer(equals(integer2.create(all.z, all.x), part)) * 2;
+end;
+
+class function TopoSet.diff(all: integer3; part: integer2): integer;
+begin
+  assert(part_of(all, part));
+  assert((all.x >= 0) and (all.y >= 0) and (all.z >= 0));
+  result := (all.x - part.x) + (all.y - part.y) + all.z;
+end;
+
+class function TopoSet.diff(all: integer2; part: integer): integer;
+begin
+  assert(part_of(all, part));
+  assert((all.x >= 0) and (all.y >= 0));
+  result := (all.x - part) + all.y;
+end;
+
+class function TopoSet.sample(all: integer3; indices: integer2): integer2;
+begin
+  result := integer2.create(all.sample(indices.x), all.sample(indices.y));
+end;
+
+function deteminant(aa, ab, ac, ba, bb, bc, ca, cb, cc: single): single;
+begin
+  result := aa * bb * cc + ba * cb * ac + ab * bc * ca - (ca * bb * ac + ab * ba * cc + cb * bc * aa);
+end;
+
+procedure system(var points: FPArray;
+                 verts: integer3;
+                 var centre: TPointF;
+                 var radius: single);
+begin
+  var a := points[verts.x];
+  var b := points[verts.y];
+  var c := points[verts.z];
+
+  var sa := deteminant(a.x, a.y, 1.0,
+                       b.x, b.y, 1.0,
+                       c.x, c.y, 1.0);
+
+  var sb := deteminant(a.x * a.x + a.y * a.y, a.y, 1.0,
+                       b.x * b.x + b.y * b.y, b.y, 1.0,
+                       c.x * c.x + c.y * c.y, c.y, 1.0);
+
+  var sc := deteminant(a.x * a.x + a.y * a.y, a.x, 1.0,
+                       b.x * b.x + b.y * b.y, b.x, 1.0,
+                       c.x * c.x + c.y * c.y, c.x, 1.0);
+
+  var sd := deteminant(a.x * a.x + a.y * a.y, a.x, a.y,
+                       b.x * b.x + b.y * b.y, b.x, b.y,
+                       c.x * c.x + c.y * c.y, c.x, c.y);
+
+  centre := TVector.Create(sb, -sc) / (sa * 2.0);
+  radius := (centre - a).length();
+end;
+
+function is_in_range(point: TPointF;
+                     var points: FPArray;
+                     verts: integer3): boolean;
+begin
+  var centre: TPointF;
+  var radius: single;
+  system(points, verts, centre, radius);
+  var distance := (centre - point).length();
+  result := radius > distance;
+end;
+
+procedure gather_tris(var points: FPArray;
+                      var tris_verts, tris_connections: I3Array;
+                      current_tri , side_i: integer;
+                      point: TpointF;
+                      var tris_soup, poly_verts, poly_other_tris, poly_mapped_tris: IArray);
+begin
+  var other_tri_i := tris_connections[current_tri].sample(side_i);
+  if not is_index(other_tri_i) then
+  begin
+    poly_verts := poly_verts + [tris_verts[current_tri].sample(side_i)];
+    poly_other_tris := poly_other_tris + [not_and_index];
+    poly_mapped_tris := poly_mapped_tris + [not_and_index];
+  end
+  else
+  begin
+    if not is_in_range(point, points, tris_verts[other_tri_i]) then
+    begin
+      poly_verts := poly_verts + [tris_verts[current_tri].sample(side_i)];
+      poly_other_tris := poly_other_tris + [other_tri_i];
+      poly_mapped_tris := poly_mapped_tris + [current_tri];
+    end
+    else
+    begin
+      for var i in tris_soup do
+      begin
+        assert(i <> other_tri_i);
+      end;
+      // assert(other_tri_i in tris_soup);
+      tris_soup := tris_soup + [other_tri_i];
+
+      var tri := tris_verts[current_tri];
+      var edge := integer2.Create(tri.sample(TopoSet.edges[side_i][0]), tri.sample(TopoSet.edges[side_i][1]));
+      var other_side_i := TopoSet.unordered_index_of(tris_verts[other_tri_i], edge);
+
+      gather_tris(points, tris_verts, tris_connections, other_tri_i,
+             TopoSet.shift_front[other_side_i], point, tris_soup, poly_verts, poly_other_tris, poly_mapped_tris);
+
+      gather_tris(points, tris_verts, tris_connections, other_tri_i,
+             TopoSet.shift_back[other_side_i], point, tris_soup, poly_verts, poly_other_tris, poly_mapped_tris);
+    end;
+  end;
+end;
+
+function wrapped_mod(i, s: integer): integer;
+begin
+  result := ((i mod s) + s) mod s;
+end;
+
+function is_point_in_triangle(var points: FPArray; tri: integer3; point: TPointF): boolean;
+begin
+  var ap := point - points[tri.x];
+  var bp := point - points[tri.y];
+  var cp := point - points[tri.z];
+
+  var ab := points[tri.y] - points[tri.x];
+  var bc := points[tri.z] - points[tri.y];
+  var ca := points[tri.x] - points[tri.z];
+
+  var dot_a := ap.x * ab.y - ap.y * ab.x;
+  var dot_b := bp.x * bc.y - bp.y * bc.x;
+  var dot_c := cp.x * ca.y - cp.y * ca.x;
+  
+  result := ((dot_a > 0.0) = (dot_b > 0.0)) and ((dot_b > 0.0) = (dot_c > 0.0));
+end;
+
+procedure update_mesh();
+begin
+  var total_points := length(points_set);
+  var points := points_set + [TPointF.Create(1000.0, 1000.0)] + [TPointF.Create(-1000.0, 1000.0)] + [TPointF.Create(0.0, -1000.0)];
+  // var points := points_set + [TPointF.Create(0.01, 0.01)] + [TPointF.Create(0.01, 0.99)] + [TPointF.Create(0.99, 0.01)];
+
+  var tris_verts: I3Array;
+  var super_tri := integer3.Create(total_points, total_points + 1, total_points + 2);
+  tris_verts := tris_verts + [super_tri];
+
+  var tris_connections: I3Array;
+  tris_connections := tris_connections + [integer3.Create(not_and_index, not_and_index, not_and_index)];
+
+  var tri_points: IIArray;
+  SetLength(tri_points, 1);
+  SetLength(tri_points[0], length(points_set));
+
+  for var I := 0 to total_points - 1 do
+  begin
+    tri_points[0][i] := i;
+  end;
+
+  var tri_to_check := TStack<integer>.Create;
+  tri_to_check.Push(0);
+
+  while not tri_to_check.IsEmpty do
+  begin
+    // debugmsg('Step');
+
+    var current_tri := tri_to_check.Pop();
+    if (length(tri_points[current_tri]) = 0) then
+    begin
+      continue;
+    end;
+
+    var point_index := tri_points[current_tri][length(tri_points[current_tri]) - 1];
+    setlength(tri_points[current_tri], length(tri_points[current_tri]) - 1);
+
+    var point := points[point_index];
+
+
+    var tris_soup: IArray;
+    tris_soup := tris_soup + [current_tri];
+
+    var poly_verts: IArray;
+    var poly_other_tris: IArray;
+    var poly_mapped_tris: IArray;
+
+    for var side_i in TopoSet.face do
+    begin
+      gather_tris(points, tris_verts, tris_connections, current_tri, side_i, point, tris_soup, poly_verts, poly_other_tris, poly_mapped_tris);
+    end;
+    assert(length(poly_verts) = length(poly_other_tris));
+    assert(length(poly_verts) = length(poly_mapped_tris));
+
+    // debugmsg('tris_soup ' + inttostr(length(tris_soup)));
+    // debugmsg('poly_verts ' + inttostr(length(poly_verts)));
+    // debugmsg('poly_other_tris ' + inttostr(length(poly_other_tris)));
+    // debugmsg('poly_mapped_tris ' + inttostr(length(poly_mapped_tris)));
+
+    var points_soup: IArray;
+    for var tri_i in tris_soup do
+    begin
+      points_soup := points_soup + tri_points[tri_i];
+      tri_points[tri_i] := [];
+      assert(length(tri_points[tri_i]) = 0);
+    end;
+
+    var total_new_tris := length(poly_verts);
+    
+    var new_tris_num := total_new_tris - length(tris_soup);
+    assert(new_tris_num >= 0);
+
+    if new_tris_num > 0 then
+    begin
+      var old_length := length(tri_points);
+      var new_length := old_length + new_tris_num;
+      setlength(tri_points, new_length);
+      setlength(tris_connections, new_length);
+      setlength(tris_verts, new_length);
+
+      // debugmsg('tris_soup old ' + inttostr(length(tris_soup)));
+
+      var i_begin := length(tris_soup);
+      setlength(tris_soup, total_new_tris);
+      // debugmsg('tris_soup new ' + inttostr(length(tris_soup)));
+      for var i := 0 to new_tris_num - 1 do
+      begin
+        tris_soup[i_begin + i] := old_length + i;
+        // debugmsg('tris_soup write ' + inttostr(i_begin + i) + ': ' + inttostr(old_length + i));
+      end;
+    end;
+
+    for var other_tri_i := 0 to total_new_tris - 1 do
+    begin
+      var old_index := poly_mapped_tris[other_tri_i];
+      var other_index := poly_other_tris[other_tri_i];
+      if is_index(other_index) and is_index(old_index) then
+      begin
+        if tris_connections[other_index].x = old_index then
+        begin
+          tris_connections[other_index].x := Low(integer) + old_index;
+        end
+        else if tris_connections[other_index].y = old_index then
+        begin
+          tris_connections[other_index].y := Low(integer) + old_index;
+        end
+        else if tris_connections[other_index].z = old_index then
+        begin
+          tris_connections[other_index].z := Low(integer) + old_index;
+        end;
+      end;
+    end;
+
+    for var other_tri_i := 0 to total_new_tris - 1 do
+    begin
+      var old_index := poly_mapped_tris[other_tri_i];
+      var other_index := poly_other_tris[other_tri_i];
+      if is_index(other_index) and is_index(old_index) then
+      begin
+        if tris_connections[other_index].x = Low(integer) + old_index then
+        begin
+          tris_connections[other_index].x := tris_soup[other_tri_i];
+        end
+        else if tris_connections[other_index].y = Low(integer) + old_index then
+        begin
+          tris_connections[other_index].y := tris_soup[other_tri_i];
+        end
+        else if tris_connections[other_index].z = Low(integer) + old_index then
+        begin
+          tris_connections[other_index].z := tris_soup[other_tri_i];
+        end;
+      end;
+    end;
+    
+    for var index := 0 to length(poly_other_tris) - 1 do
+    begin
+      var tri_i := tris_soup[index];
+
+      var next_index := wrapped_mod(index + 1, total_new_tris);
+      var prev_index := wrapped_mod(index - 1, total_new_tris);
+
+      tris_verts[tri_i] := integer3.create(poly_verts[index], poly_verts[next_index], point_index);
+      tris_connections[tri_i] := integer3.create(poly_other_tris[index], tris_soup[next_index], tris_soup[prev_index]);
+    end;
+
+    for var index in points_soup do
+    begin
+      for var tri_index in tris_soup do
+      begin
+        if is_point_in_triangle(points, tris_verts[tri_index], points[index]) then
+        begin
+          tri_points[tri_index] := tri_points[tri_index] + [index];
+          break;
+        end;
+      end;
+    end;
+
+    for var tri_index in tris_soup do
+    begin
+      if length(tri_points[tri_index]) > 0 then
+      begin
+        tri_to_check.push(tri_index);
+      end;
+    end;
+  end;
+  
+  for var tri in tris_verts do
+  begin
+    if not (TopoSet.part_of(tri, super_tri.x) or TopoSet.part_of(tri, super_tri.y) or TopoSet.part_of(tri, super_tri.z)) then
+    begin
+      tris := tris + [tri];
+    end;
+  end;
+end;
+
+procedure TForm1.OnCreate(Sender: TObject);
+begin
+
+  // points_set := points_set + [TPoint.Create(10, 10)];
+  // points_set := points_set + [TPoint.Create(600, 10)];
+  // points_set := points_set + [TPoint.Create(10, 600)];
+
+  form1.Image1.SetParentComponent(form1);
+  form1.OnResize(Sender);
+end;
+
+procedure TForm1.OnResize(Sender: TObject);
+begin
+  form1.Image1.SetBounds(0,0, form1.Width, form1.Height);
+  form1.image1.Picture.Bitmap.Width := form1.Width;
+  form1.image1.Picture.Bitmap.Height := form1.Height;
+  form1.image1.Picture.Bitmap.SetSize(form1.Width, form1.Height);
+  form1.image1.Canvas.MoveTo(0, 0);
+  form1.draw();
+end;
+
+procedure TForm1.Image1Click(Sender: TObject);
+begin
+  points_set := points_set + [Mouse.CursorPos - form1.BoundsRect.TopLeft - TPoint.Create(0, form1.Icon.Height)];
+  update_mesh();
+  form1.draw();
+end;
+
+procedure TForm1.Draw();
+begin
+  for var point_iter in points_set do
+  begin
+    var ipoint := TPoint.Create(trunc(point_iter.x), trunc(point_iter.y));
+    form1.Image1.Canvas.Rectangle(ipoint.X - 2, ipoint.Y - 2, ipoint.X + 2, ipoint.Y + 2);
+  end;
+
+  for var tri in tris do
+  begin
+    var tri_points: array of TPoint;
+    tri_points := tri_points + [TPoint.Create(trunc(points_set[tri.x].x), trunc(points_set[tri.x].y))];
+    tri_points := tri_points + [TPoint.Create(trunc(points_set[tri.y].x), trunc(points_set[tri.y].y))];
+    tri_points := tri_points + [TPoint.Create(trunc(points_set[tri.z].x), trunc(points_set[tri.z].y))];
+    form1.Image1.Canvas.Polygon(tri_points);
+  end;
+
+  for var tri in tris do
+  begin
+    var centre: TPointF;
+    var radius: single;
+    system(points_set, tri, centre, radius);
+
+    var coord := TVector.create(radius, 0.0);
+    var tri_points: array of TPoint;
+    for var i:= 0 to 100 do
+    begin
+      var rot_mat := TMatrix.CreateRotation(i / 100 * 3.14 * 2.0);
+      var rotated_coord := centre + (coord * rot_mat);
+      tri_points := tri_points + [TPoint.Create(trunc(rotated_coord.x), trunc(rotated_coord.y))];
+    end;
+    form1.Image1.Canvas.Polyline(tri_points);
+  end;
+end;
+
+
+end.

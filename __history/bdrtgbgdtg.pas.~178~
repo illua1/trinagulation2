@@ -1,0 +1,170 @@
+﻿unit bdrtgbgdtg;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, System.Generics.Collections, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ExtCtrls;
+
+type
+  TForm1 = class(TForm)
+    Image1: TImage;
+    procedure OnCreate(Sender: TObject);
+    procedure OnResize(Sender: TObject);
+    procedure Image1Click(Sender: TObject);
+    procedure Draw();
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+type
+  Edge = class
+  public
+    a: integer;
+    b: integer;
+    constructor Create(_a, _b : integer);
+  end;
+
+type
+  integer2 = class
+  public
+    x: integer;
+    y: integer;
+    constructor Create(_x, _y : integer);
+  end;
+
+type
+  integer3 = class
+  public
+    x: integer;
+    y: integer;
+    z: integer;
+    constructor Create(_x, _y, _z : integer);
+  end;
+
+var
+  Form1: TForm1;
+  points_set: array of TPoint;
+
+  //edges: array of Edge;
+  tris: array of integer3;
+
+  edges: TArray<Edge>;
+
+implementation
+
+{$R *.dfm}
+
+procedure DebugMsg(const Msg: String);
+begin
+    OutputDebugString(PChar(Msg))
+end;
+
+constructor Edge.Create(_a, _b : integer);
+begin
+if _a < _b then
+begin
+  a := _a;
+  b := _b;
+end
+else
+begin
+  a := _b;
+  b := _a;
+end;
+end;
+
+constructor integer2.Create(_x, _y : integer);
+begin
+x := _x;
+y := _y;
+end;
+
+constructor integer3.Create(_x, _y, _z : integer);
+begin
+x := _x;
+y := _y;
+z := _z;
+end;
+
+function generate_delaunay_triplets(x_points, y_points :pointer; total_point: integer; r_total_tris: pointer): pointer; external 'Main.dll';
+procedure free_delaunay_triplets(tris :pointer); external 'Main.dll';
+
+function delaunay_a(tris :pointer; index: integer): integer; external 'Main.dll';
+function delaunay_b(tris :pointer; index: integer): integer; external 'Main.dll';
+function delaunay_c(tris :pointer; index: integer): integer; external 'Main.dll';
+
+procedure update_mesh();
+begin
+// tris := tris + integer3.Create(0, 1, 2);
+
+var x_positions, y_positions: array of integer;
+
+for var point_iter in points_set do
+begin
+  x_positions := x_positions + [point_iter.X];
+  y_positions := y_positions + [point_iter.Y];
+end;
+
+var total_tris := 0;
+var c_tris := generate_delaunay_triplets(pointer(x_positions), pointer(y_positions), Length(points_set), @total_tris);
+
+tris := [];
+for var index := 0 to total_tris do
+begin
+  tris := tris + [integer3.Create(delaunay_a(c_tris, index), delaunay_b(c_tris, index), delaunay_c(c_tris, index))];
+end;
+
+free_delaunay_triplets(c_tris);
+end;
+
+procedure TForm1.OnCreate(Sender: TObject);
+begin
+
+// points_set := points_set + [TPoint.Create(10, 10)];
+// points_set := points_set + [TPoint.Create(600, 10)];
+// points_set := points_set + [TPoint.Create(10, 600)];
+
+form1.Image1.SetParentComponent(form1);
+form1.OnResize(Sender);
+end;
+
+procedure TForm1.OnResize(Sender: TObject);
+begin
+form1.Image1.SetBounds(0,0, form1.Width, form1.Height);
+form1.image1.Picture.Bitmap.Width := form1.Width;
+form1.image1.Picture.Bitmap.Height := form1.Height;
+form1.image1.Picture.Bitmap.SetSize(form1.Width, form1.Height);
+form1.image1.Canvas.MoveTo(0, 0);
+form1.draw();
+end;
+
+procedure TForm1.Image1Click(Sender: TObject);
+begin
+points_set := points_set + [Mouse.CursorPos - form1.BoundsRect.TopLeft - TPoint.Create(0, form1.Icon.Height)];
+update_mesh();
+form1.draw();
+end;
+
+procedure TForm1.Draw();
+begin
+for var point_iter in points_set do
+  begin
+    form1.Image1.Canvas.Rectangle(point_iter.X - 2, point_iter.Y - 2, point_iter.X + 2, point_iter.Y + 2);
+  end;
+
+for var tri in tris do
+begin
+  var tri_points: array of TPoint;
+  tri_points := tri_points + [points_set[tri.x]];
+  tri_points := tri_points + [points_set[tri.y]];
+  tri_points := tri_points + [points_set[tri.z]];
+  form1.Image1.Canvas.Polygon(tri_points);
+end;
+
+end;
+
+
+end.
